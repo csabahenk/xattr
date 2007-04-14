@@ -10,7 +10,7 @@ hoe = Hoe.new("xattr", Xattr::VERSION) do |t|
   t.description = readme[0, readme.index("== LICENSE")]
   t.summary = t.paragraphs_of("README.txt", 1).to_s
   t.email = "dharple@generalconsumption.org"
-  t.url = "http://generalconsumption.org"
+  t.url = "http://rubyforge.org/projects/xattr"
   t.clean_globs << ".DS_Store"
 end
 
