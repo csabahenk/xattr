@@ -6,7 +6,7 @@ require "dl/import"
 # the file system.  They are stored as name:data pairs associated with file
 # system objects (files, directories, symlinks, etc). 
 class Xattr
-  VERSION = "1.0"
+  VERSION = "0.1"
   
   # Raw access to *xattr() functions.
   module Raw # :nodoc:
