@@ -1,0 +1,7 @@
+History.txt
+Manifest.txt
+README.txt
+Rakefile
+bin/xattr
+lib/xattr.rb
+setup.rb

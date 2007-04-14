@@ -1,0 +1,58 @@
+#!/usr/bin/env ruby
+# 
+# Copyright (c) 2007 Daniel Harple <dharple@generalconsumption.org>
+
+xattr = File.join(File.dirname(__FILE__), "..", "lib", "xattr.rb")
+if File.exist?(xattr)
+  require xattr
+else
+  require "xattr"
+end
+require "optparse"
+
+def quit(msg, exit_value=1)
+  puts msg
+  exit(exit_value)
+end
+
+opts = OptionParser.new do |opts|
+  opts.banner = "Usage:  #{File.basename($PROGRAM_NAME)} FILE [[-]ATTRIBUTE [VALUE]]
+  
+    * FILE                 -> The attributes of FILE.
+    * FILE ATTRIBUTE       -> The value of FILE's ATTRIBUTE
+    * FILE -ATTRIBUTE      -> Deletes FILE's ATTRIBUTE
+    * FILE ATTRIBUTE VALUE -> Sets FILE's ATTRIBUTE to VALUE"
+
+  opts.separator("")
+  
+  opts.on("-h", "--help", "Show this message.") do
+    quit(opts, 0)
+  end
+end
+
+begin
+  opts.parse(ARGV[0, 1])
+  
+  argv_len = ARGV.length
+  if argv_len > 0
+    xattr = Xattr.new(ARGV[0])
+    result = if argv_len == 2
+               if ARGV[1][/^-/]
+                 xattr.remove(ARGV[1].sub("-", ""))
+               else
+                 xattr.get(ARGV[1])
+               end
+             elsif argv_len == 3
+               xattr.set(ARGV[1], ARGV[2])
+             else
+               xattr.list.join("\n")
+             end
+    puts result if result and result.any?
+  else
+    quit(opts)
+  end
+rescue SystemCallError => e
+  quit("#{e.class}: #{e}")
+rescue StandardError => e
+  quit("#{e.class}: #{e}\n\n#{opts}")
+end
