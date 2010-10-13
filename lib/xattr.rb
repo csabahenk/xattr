@@ -10,7 +10,12 @@ class Xattr
   
   # Raw access to *xattr() functions.
   module Raw # :nodoc:
-    extend DL::Importable    
+    begin
+      extend DL::Importable # 1.8
+    rescue NameError
+      extend DL::Importer   # 1.9
+    end
+
     # Don't follow symbolic links
     NOFOLLOW = 0x0001
     # set the value, fail if attr already exists
@@ -25,7 +30,8 @@ class Xattr
     RESOURCEFORK_NAME = "com.apple.ResourceFork"
     begin
       dlload "libSystem.dylib" # OS X
-    rescue RuntimeError
+    rescue RuntimeError, # 1.8
+           DL::DLError   # 1.9
       dlload "libc.so.6"       # Linux
     end
     extern "int listxattr(const char *, void *, int, int)"
@@ -61,7 +67,7 @@ class Xattr
     options = _follow_symlinks_option()
     result = _allocate_result(Raw.getxattr(@path, attribute, nil, 0, 0, options))
     _error(Raw.getxattr(@path, attribute, result, result.size, 0, options))
-    result.to_s
+    result.to_str
   end
       
   # Set an attribute (with options)
@@ -99,8 +105,14 @@ class Xattr
 private
 
   # All *xattr() functions return -1 on error
-  def _error(return_code)
-    raise SystemCallError.new(nil, DL.last_error) if return_code < 0
+  if RUBY_VERSION < "1.9"
+    def _error(return_code)
+      raise SystemCallError.new(nil, DL.last_error) if return_code < 0
+    end
+  else
+    def _error(return_code)
+      raise SystemCallError.new(nil, Fiddle.last_error) if return_code < 0
+    end
   end
   
   # Returns an int option to pass to a Raw.*xattr() function
@@ -109,8 +121,15 @@ private
   end
   
   # Allocate a string to store results in
-  def _allocate_result(len)
-    _error(len)
-    (" " * len).to_ptr
+  if RUBY_VERSION < "1.9"
+    def _allocate_result(len)
+      _error(len)
+      DL.malloc(len)
+    end
+  else
+    def _allocate_result(len)
+      _error(len)
+      DL::CPtr.new(DL.malloc(len), len)
+    end
   end
 end

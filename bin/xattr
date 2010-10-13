@@ -47,7 +47,7 @@ begin
              else
                xattr.list.join("\n")
              end
-    puts result if result and result.any?
+    puts result if result and !result.empty?
   else
     quit(opts)
   end
