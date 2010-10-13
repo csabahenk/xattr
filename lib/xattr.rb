@@ -23,7 +23,11 @@ class Xattr
     MAXNAMELEN = 127
     FINDERINFO_NAME = "com.apple.FinderInfo"
     RESOURCEFORK_NAME = "com.apple.ResourceFork"
-    dlload "libSystem.dylib"
+    begin
+      dlload "libSystem.dylib" # OS X
+    rescue RuntimeError
+      dlload "libc.so.6"       # Linux
+    end
     extern "int listxattr(const char *, void *, int, int)"
     extern "int getxattr(const char *, const char *, void *, int, int, int)"
     extern "int setxattr(const char *, const char *, void *, int, int, int)"
