@@ -54,9 +54,34 @@ class Xattr
       extern "#{ssize_t} getxattr(const char *, const char *, void *, #{size_t}, uint, int)"
       extern "int setxattr(const char *, const char *, void *, #{size_t}, uint, int)"
       extern "int removexattr(const char *, const char *, int)"
+
+      extern "#{ssize_t} flistxattr(int, void *, #{size_t}, int)"
+      extern "#{ssize_t} fgetxattr(int, const char *, void *, #{size_t}, uint, int)"
+      extern "int fsetxattr(int, const char *, void *, #{size_t}, uint, int)"
+      extern "int fremovexattr(int, const char *, int)"
     end
 
-    Unisys = Raw
+    module Unisys
+
+      NOFOLLOW = Raw::NOFOLLOW
+
+      module_function
+
+      def wrap meth
+        define_method(meth) do |*a|
+          mod = ""
+          if a[0].respond_to?(:fileno)
+            a[0] = a[0].fileno
+            mod = "f"
+          end
+          Raw.send(mod + meth, *a)
+        end
+        module_function meth
+      end
+
+      %w[list get set remove].each { |op| wrap(op + "xattr") }
+
+    end
   elsif RUBY_PLATFORM =~ /linux/i
     module Raw
       extend Raw_core
@@ -76,6 +101,11 @@ class Xattr
       extern "#{ssize_t} lgetxattr(const char *, const char *, void *, #{size_t})"
       extern "int lsetxattr(const char *, const char *, void *, #{size_t}, int)"
       extern "int lremovexattr(const char *, const char *)"
+
+      extern "#{ssize_t} flistxattr(int, void *, #{size_t})"
+      extern "#{ssize_t} fgetxattr(int, const char *, void *, #{size_t})"
+      extern "int fsetxattr(int, const char *, void *, #{size_t}, int)"
+      extern "int fremovexattr(int, const char *)"
     end
 
     module Unisys
@@ -84,27 +114,36 @@ class Xattr
 
       module_function
 
-      def removexattr(path, name, options)
-        Raw.send(_mod(options) + "removexattr", path, name)
+      def removexattr(*args)
+        Raw.send(*_mod("removexattr", *args))
       end
 
-      def listxattr(path, name, size, options)
-        Raw.send(_mod(options) + "listxattr", path, name, size)
+      def listxattr(*args)
+        Raw.send(*_mod("listxattr", *args))
       end
 
       def getxattr(path, name, value, size, pos, options)
-        Raw.send(_mod(options) + "getxattr", path, name, value, size)
+        Raw.send(*_mod("getxattr", path, name, value, size, options))
       end
 
       def setxattr(path, name, value, size, pos, options)
-        Raw.send(_mod(options) + "setxattr", path, name, value, size,
-                 options & ~NOFOLLOW)
+        Raw.send(*(_mod("setxattr", path, name, value, size, options) <<
+                   (options & ~NOFOLLOW)))
       end
 
       private_class_method
 
-      def _mod(options)
-        (options & NOFOLLOW).zero? ? "" : "l"
+      def _mod(*a)
+        fno = a[1].respond_to?(:fileno) && a[1].fileno
+        a[0] = if fno
+          "f"
+        elsif (a[-1] & NOFOLLOW).zero?
+          ""
+        else
+          "l"
+        end + a[0]
+        a[1] = fno || a[1]
+        a[0...-1]
       end
     end
   else
