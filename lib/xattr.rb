@@ -8,38 +8,109 @@ require "dl/import"
 class Xattr
   VERSION = "0.1"
   
-  # Raw access to *xattr() functions.
-  module Raw # :nodoc:
+  module Raw_core # :nodoc:
     begin
-      extend DL::Importable # 1.8
+      include DL::Importable # 1.8
     rescue NameError
-      extend DL::Importer   # 1.9
+      include DL::Importer   # 1.9
     end
 
-    # Don't follow symbolic links
-    NOFOLLOW = 0x0001
-    # set the value, fail if attr already exists
-    CREATE = 0x0002
-    # set the value, fail if attr does not exist
-    REPLACE = 0x0004
-    # Set this to bypass authorization checking (eg. if doing auth-related
-    # work)
-    NOSECURITY = 0x0008
-    MAXNAMELEN = 127
-    FINDERINFO_NAME = "com.apple.FinderInfo"
-    RESOURCEFORK_NAME = "com.apple.ResourceFork"
-    begin
-      dlload "libSystem.dylib" # OS X
-    rescue RuntimeError, # 1.8
-           DL::DLError   # 1.9
-      dlload "libc.so.6"       # Linux
+    # actually, with gcc, these come from __SIZE_TYPE__ builtin macro
+    def size_t
+      "unsigned long"
     end
-    extern "int listxattr(const char *, void *, int, int)"
-    extern "int getxattr(const char *, const char *, void *, int, int, int)"
-    extern "int setxattr(const char *, const char *, void *, int, int, int)"
-    extern "int removexattr(const char *, const char *, int)"
+
+    def ssize_t
+      "long"
+    end
   end
-  
+
+  if RUBY_PLATFORM =~ /darwin/i
+    # Raw access to *xattr() functions.
+    module Raw # :nodoc:
+      extend Raw_core
+      # Don't follow symbolic links
+      NOFOLLOW = 0x0001
+      # set the value, fail if attr already exists
+      CREATE = 0x0002
+      # set the value, fail if attr does not exist
+      REPLACE = 0x0004
+      # Set this to bypass authorization checking (eg. if doing auth-related
+      # work)
+      NOSECURITY = 0x0008
+      # Set this to bypass the default extended attribute file
+      # (dot-underscore file)
+      NODEFAULT = 0x0010
+      # option for f/getxattr() and f/listxattr() to expose the HFS Compression
+      # extended attributes
+      SHOWCOMPRESSION  = 0x0020
+      MAXNAMELEN = 127
+      FINDERINFO_NAME = "com.apple.FinderInfo"
+      RESOURCEFORK_NAME = "com.apple.ResourceFork"
+
+      dlload "libSystem.dylib"
+
+      extern "#{ssize_t} listxattr(const char *, void *, #{size_t}, int)"
+      extern "#{ssize_t} getxattr(const char *, const char *, void *, #{size_t}, uint, int)"
+      extern "int setxattr(const char *, const char *, void *, #{size_t}, uint, int)"
+      extern "int removexattr(const char *, const char *, int)"
+    end
+
+    Unisys = Raw
+  elsif RUBY_PLATFORM =~ /linux/i
+    module Raw
+      extend Raw_core
+      # set the value, fail if attr already exists
+      CREATE = 0x1
+      # set the value, fail if attr does not exist
+      REPLACE = 0x2
+
+      dlload "libc.so.6"
+
+      extern "#{ssize_t} listxattr(const char *, void *, #{size_t})"
+      extern "#{ssize_t} getxattr(const char *, const char *, void *, #{size_t})"
+      extern "int setxattr(const char *, const char *, void *, #{size_t}, int)"
+      extern "int removexattr(const char *, const char *)"
+
+      extern "#{ssize_t} llistxattr(const char *, void *, #{size_t})"
+      extern "#{ssize_t} lgetxattr(const char *, const char *, void *, #{size_t})"
+      extern "int lsetxattr(const char *, const char *, void *, #{size_t}, int)"
+      extern "int lremovexattr(const char *, const char *)"
+    end
+
+    module Unisys
+      # fake value to emulate Darwin API
+      NOFOLLOW = 0x4
+
+      module_function
+
+      def removexattr(path, name, options)
+        Raw.send(_mod(options) + "removexattr", path, name)
+      end
+
+      def listxattr(path, name, size, options)
+        Raw.send(_mod(options) + "listxattr", path, name, size)
+      end
+
+      def getxattr(path, name, value, size, pos, options)
+        Raw.send(_mod(options) + "getxattr", path, name, value, size)
+      end
+
+      def setxattr(path, name, value, size, pos, options)
+        Raw.send(_mod(options) + "setxattr", path, name, value, size,
+                 options & ~NOFOLLOW)
+      end
+
+      private_class_method
+
+      def _mod(options)
+        (options & NOFOLLOW).zero? ? "" : "l"
+      end
+    end
+  else
+    raise NotImplementedError, "your platform #{RUBY_PLATFORM} is not supported"
+  end
+
   def initialize(path)
     @path = path
     @follow_symlinks = true
@@ -55,8 +126,8 @@ class Xattr
   # See <tt>man 2 listxattr</tt> for a synopsis of errors that may be raised.
   def list
     options = _follow_symlinks_option()
-    result = _allocate_result(Raw.listxattr(@path, nil, 0, options))
-    _error(Raw.listxattr(@path, result, result.size, options))
+    result = _allocate_result(Unisys.listxattr(@path, nil, 0, options))
+    _error(Unisys.listxattr(@path, result, result.size, options))
     result.to_str.split("\000")
   end
   
@@ -65,8 +136,8 @@ class Xattr
   # See <tt>man 2 getxattr</tt> for a synopsis of errors that may be raised.
   def get(attribute)
     options = _follow_symlinks_option()
-    result = _allocate_result(Raw.getxattr(@path, attribute, nil, 0, 0, options))
-    _error(Raw.getxattr(@path, attribute, result, result.size, 0, options))
+    result = _allocate_result(Unisys.getxattr(@path, attribute, nil, 0, 0, options))
+    _error(Unisys.getxattr(@path, attribute, result, result.size, 0, options))
     result.to_str
   end
       
@@ -88,7 +159,7 @@ class Xattr
     opts |= Raw::CREATE if options[:create]
     opts |= Raw::REPLACE if options[:replace]
     value = value.to_s
-    _error(Raw.setxattr(@path, attribute, value, value.size, 0, opts))
+    _error(Unisys.setxattr(@path, attribute, value, value.size, 0, opts))
     value
   end
   
@@ -98,7 +169,7 @@ class Xattr
   # raised.
   def remove(attribute)
     value = get(attribute)
-    _error(Raw.removexattr(@path, attribute, _follow_symlinks_option()))
+    _error(Unisys.removexattr(@path, attribute, _follow_symlinks_option()))
     value
   end
   
@@ -115,9 +186,9 @@ private
     end
   end
   
-  # Returns an int option to pass to a Raw.*xattr() function
+  # Returns an int option to pass to a Unisys.*xattr() function
   def _follow_symlinks_option
-    @follow_symlinks ? 0 : Raw::NOFOLLOW
+    @follow_symlinks ? 0 : Unisys::NOFOLLOW
   end
   
   # Allocate a string to store results in
