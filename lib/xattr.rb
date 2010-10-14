@@ -1,3 +1,4 @@
+# Copyright (c) 2010 Csaba Henk <csaba@lowlife.hu>
 # Copyright (c) 2007 Daniel Harple <dharple@generalconsumption.org>
 
 require "dl/import"
