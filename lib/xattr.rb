@@ -1,7 +1,27 @@
 # Copyright (c) 2010 Csaba Henk <csaba@lowlife.hu>
 # Copyright (c) 2007 Daniel Harple <dharple@generalconsumption.org>
 
-require "dl/import"
+if RUBY_PLATFORM == "java"
+  # hush annoying warning about experimental state
+  w_orig, $VERBOSE = $VERBOSE, nil
+  require "dl/import"
+  $VERBOSE = w_orig
+  require "rbconfig"
+
+  RUBY_OS = Config::CONFIG["target_os"]
+
+  class DL::PtrData
+
+    def to_str
+      to_ptr.get_bytes 0, to_ptr.size
+    end
+
+  end
+else
+  require "dl/import"
+
+  RUBY_OS = RUBY_PLATFORM
+end
 
 # Extended attributes extend the basic attributes of files and directories in
 # the file system.  They are stored as name:data pairs associated with file
@@ -26,7 +46,7 @@ class Xattr
     end
   end
 
-  if RUBY_PLATFORM =~ /darwin/i
+  if RUBY_OS =~ /darwin/i
     # Raw access to *xattr() functions.
     module Raw # :nodoc:
       extend Raw_core
@@ -83,7 +103,7 @@ class Xattr
       %w[list get set remove].each { |op| wrap(op + "xattr") }
 
     end
-  elsif RUBY_PLATFORM =~ /linux/i
+  elsif RUBY_OS =~ /linux/i
     module Raw
       extend Raw_core
       # set the value, fail if attr already exists
@@ -215,17 +235,25 @@ class Xattr
   
 private
 
-  # All *xattr() functions return -1 on error
-  if RUBY_VERSION < "1.9"
-    def _error(return_code)
-      raise SystemCallError.new(nil, DL.last_error) if return_code < 0
+  if RUBY_PLATFORM == "java"
+    def _last_error
+      FFI.errno
+    end
+  elsif RUBY_VERSION < "1.9"
+    def _last_error
+      DL.last_error
     end
   else
-    def _error(return_code)
-      raise SystemCallError.new(nil, Fiddle.last_error) if return_code < 0
+    def _last_error
+      Fiddle.last_error
     end
   end
   
+  # All *xattr() functions return -1 on error
+  def _error(return_code)
+    raise SystemCallError.new(nil, _last_error) if return_code < 0
+  end
+
   # Returns an int option to pass to a Unisys.*xattr() function
   def _follow_symlinks_option
     @follow_symlinks ? 0 : Unisys::NOFOLLOW
